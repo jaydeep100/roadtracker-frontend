@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 body {
@@ -9,17 +9,16 @@ body {
   min-width: 320px;
   min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: #09090b;
+  color: #f4f4f5;
 }
 
 /* Leaflet map container */
 .leaflet-container {
   width: 100% !important;
-  height: 420px !important;
   font-family: inherit !important;
   border-radius: 12px;
-  background-color: #f1f5f9 !important;
+  background-color: #121214 !important;
 }
 
 /* Remove default white border box from custom Leaflet div-icons */
@@ -28,13 +27,13 @@ body {
   border: none !important;
 }
 
-/* Leaflet popup styling - Clean Light Theme */
+/* Leaflet popup styling - Yellow & Black Theme */
 .leaflet-popup-content-wrapper {
-  background: #ffffff !important;
-  color: #0f172a !important;
-  border: 1px solid #e2e8f0 !important;
+  background: #18181b !important;
+  color: #f4f4f5 !important;
+  border: 1px solid #facc15 !important;
   border-radius: 10px !important;
-  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.05) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.8), 0 0 15px rgba(250, 204, 21, 0.25) !important;
   padding: 2px !important;
 }
 
@@ -45,35 +44,76 @@ body {
 }
 
 .leaflet-popup-tip {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  background: #18181b !important;
+  border: 1px solid #facc15 !important;
 }
 
 .leaflet-container a.leaflet-popup-close-button {
-  color: #64748b !important;
+  color: #a1a1aa !important;
   padding: 6px !important;
   font-size: 16px !important;
 }
 
 .leaflet-container a.leaflet-popup-close-button:hover {
-  color: #0f172a !important;
+  color: #facc15 !important;
 }
 
-/* Sleek custom scrollbars for table / containers */
+/* Leaflet zoom controls in yellow/black dark theme */
+.leaflet-bar {
+  border: 1px solid #27272a !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
+
+.leaflet-bar a {
+  background-color: #18181b !important;
+  border-bottom: 1px solid #27272a !important;
+  color: #facc15 !important;
+}
+
+.leaflet-bar a:hover {
+  background-color: #27272a !important;
+  color: #fde047 !important;
+}
+
+.leaflet-bar a.leaflet-disabled {
+  background-color: #121214 !important;
+  color: #52525b !important;
+}
+
+/* Leaflet attribution styling */
+.leaflet-control-attribution {
+  background: rgba(9, 9, 11, 0.85) !important;
+  color: #71717a !important;
+  font-size: 10px !important;
+}
+
+.leaflet-control-attribution a {
+  color: #facc15 !important;
+  text-decoration: none !important;
+}
+
+.leaflet-control-attribution a:hover {
+  text-decoration: underline !important;
+}
+
+/* Sleek custom scrollbars with Yellow accents */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #09090b;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #27272a;
   border-radius: 9999px;
+  border: 1px solid #3f3f46;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #facc15;
 }

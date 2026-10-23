@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import RoadMap from "./components/RoadMap";
 import {
   getDefects,
@@ -27,7 +27,27 @@ function App() {
   const [message, setMessage] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [focusCoords, setFocusCoords] = useState(null);
+  const [focusedDefectId, setFocusedDefectId] = useState(null);
   const [copied, setCopied] = useState(false);
+
+  const mapSectionRef = useRef(null);
+
+  // Helper to scroll to the map and fly to specific coordinates
+  function redirectToMap(lat, lon, defectId = null) {
+    setFocusCoords({ lat, lon, zoom: 16, key: Date.now() });
+    if (defectId != null) {
+      setFocusedDefectId(defectId);
+    }
+    // Smoothly redirect viewport to the map section
+    setTimeout(() => {
+      if (mapSectionRef.current) {
+        mapSectionRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }
+    }, 80);
+  }
 
   // Fetch defects directly from backend
   async function loadDefects() {
@@ -38,12 +58,14 @@ function App() {
       const data = await getDefects(DEFAULT_API_URL);
       setDefects(data);
       setBackendConnected(true);
+      return data;
     } catch (err) {
       setBackendConnected(false);
       setDefects([]);
       setError(
         `Unable to reach backend at ${DEFAULT_API_URL}: ${err.message}`
       );
+      return [];
     } finally {
       setLoading(false);
     }
@@ -86,7 +108,7 @@ function App() {
     setError("");
   }
 
-  // Add new defect to backend
+  // Add new defect to backend and redirect to location on map
   async function handleAddDefect(e) {
     e.preventDefault();
     setSaving(true);
@@ -103,16 +125,31 @@ function App() {
     }
 
     try {
-      await addDefect(DEFAULT_API_URL, {
+      const result = await addDefect(DEFAULT_API_URL, {
         description: description.trim(),
         latitude: lat,
         longitude: lon,
       });
 
-      setMessage("Defect reported successfully to backend.");
+      const addedLat = lat;
+      const addedLon = lon;
+
+      setMessage("Record added successfully! Redirecting to location on map...");
       setDescription("");
       setNearbyDefects(null);
-      await loadDefects();
+
+      // Reload defects list
+      const updatedDefects = await loadDefects();
+
+      // Find the created defect if possible to highlight its popup
+      const newDefect = updatedDefects?.find(
+        (d) =>
+          Math.abs(Number(d.latitude) - addedLat) < 0.00001 &&
+          Math.abs(Number(d.longitude) - addedLon) < 0.00001
+      ) || result;
+
+      // Automatically redirect view to the newly added location on the map
+      redirectToMap(addedLat, addedLon, newDefect?.id || null);
     } catch (err) {
       setError(`Failed to save defect: ${err.message}`);
     } finally {
@@ -148,6 +185,9 @@ function App() {
       setMessage(
         `Found ${results.length} defect(s) within ${dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${dist}m`}.`
       );
+
+      // Redirect viewport to map to see results
+      redirectToMap(lat, lon, null);
     } catch (err) {
       setError(`Nearby search failed: ${err.message}`);
     } finally {
@@ -155,15 +195,15 @@ function App() {
     }
   }
 
-  // Focus map on a selected defect
+  // Focus map on a selected defect and redirect viewport
   function handleFocusDefect(defect) {
     const lat = Number(defect.latitude);
     const lon = Number(defect.longitude);
 
     if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      setFocusCoords({ lat, lon });
       setLatitude(lat.toFixed(6));
       setLongitude(lon.toFixed(6));
+      redirectToMap(lat, lon, defect.id);
     }
   }
 
@@ -188,20 +228,25 @@ function App() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 antialiased">
+    <div className="min-h-screen bg-black text-zinc-100 antialiased selection:bg-yellow-400 selection:text-black">
       {/* Header */}
-      <header className="border-b border-gray-200 bg-white shadow-2xs">
+      <header className="border-b border-zinc-800 bg-zinc-950/95 sticky top-0 z-30 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white font-bold text-lg shadow-sm">
-              📍
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-yellow-400 text-black font-black text-lg shadow-[0_0_15px_rgba(250,204,21,0.4)]">
+              ⚠️
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 sm:text-xl">
-                Road Tracker
-              </h1>
-              <p className="text-xs text-gray-500">
-                Civil Road Defect Management
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg font-black tracking-wider text-yellow-400 uppercase sm:text-xl">
+                  RoadTrack
+                </h1>
+                <span className="rounded bg-yellow-400/20 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-widest text-yellow-400 border border-yellow-400/30">
+                  PRO
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400">
+                Civil Road Defect & Spatial Telemetry
               </p>
             </div>
           </div>
@@ -209,20 +254,20 @@ function App() {
           <div className="flex items-center gap-2.5">
             {/* Backend Status Indicator */}
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
                 backendConnected === true
-                  ? "border-green-200 bg-green-50 text-green-700"
+                  ? "border-yellow-400/40 bg-yellow-400/10 text-yellow-400"
                   : backendConnected === false
-                  ? "border-red-200 bg-red-50 text-red-700"
-                  : "border-gray-200 bg-gray-50 text-gray-600"
+                  ? "border-red-500/40 bg-red-500/10 text-red-400"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-400"
               }`}
             >
               <span
                 className={`h-2 w-2 rounded-full ${
                   loading
-                    ? "bg-amber-400 animate-pulse"
+                    ? "bg-yellow-400 animate-pulse"
                     : backendConnected === true
-                    ? "bg-green-500"
+                    ? "bg-yellow-400 shadow-[0_0_8px_#facc15]"
                     : "bg-red-500"
                 }`}
               />
@@ -230,7 +275,7 @@ function App() {
                 {loading
                   ? "Connecting..."
                   : backendConnected === true
-                  ? "Backend Connected"
+                  ? "Live Connected"
                   : "Backend Offline"}
               </span>
             </span>
@@ -240,8 +285,8 @@ function App() {
               type="button"
               onClick={loadDefects}
               disabled={loading}
-              title="Reload from backend"
-              className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors disabled:opacity-50 shadow-2xs"
+              title="Reload defects from backend"
+              className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-bold text-zinc-200 hover:border-yellow-400 hover:text-yellow-400 transition-colors disabled:opacity-50 shadow-sm"
             >
               <span className={loading ? "animate-spin" : ""}>🔄</span>
               <span className="hidden sm:inline">{loading ? "Loading..." : "Refresh"}</span>
@@ -254,14 +299,14 @@ function App() {
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
         {/* Error Notification */}
         {error && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-xs sm:text-sm text-red-800">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/40 bg-red-950/40 p-4 text-xs sm:text-sm text-red-300">
             <div className="flex items-center gap-2.5">
-              <span className="text-base">⚠️</span>
+              <span className="text-lg">⚠️</span>
               <div>
-                <p className="font-semibold">{error}</p>
-                <p className="text-xs text-red-600 mt-0.5">
-                  Make sure your Spring Boot backend is running on{" "}
-                  <code className="bg-red-100 px-1 py-0.5 rounded font-mono text-[11px]">
+                <p className="font-bold text-red-200">{error}</p>
+                <p className="text-xs text-red-400 mt-0.5">
+                  Ensure the API server is active at{" "}
+                  <code className="bg-red-950 border border-red-800 px-1 py-0.5 rounded font-mono text-[11px] text-red-200">
                     {DEFAULT_API_URL}
                   </code>
                 </p>
@@ -271,14 +316,14 @@ function App() {
               <button
                 type="button"
                 onClick={loadDefects}
-                className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors shadow-2xs"
+                className="rounded-md border border-red-400/50 bg-red-900/60 px-3 py-1 text-xs font-bold text-red-200 hover:bg-red-800 transition-colors shadow-sm"
               >
                 Retry
               </button>
               <button
                 type="button"
                 onClick={() => setError("")}
-                className="text-red-500 hover:text-red-800 font-bold px-1"
+                className="text-red-400 hover:text-red-200 font-bold px-1"
                 aria-label="Close"
               >
                 ✕
@@ -289,15 +334,15 @@ function App() {
 
         {/* Success Notification */}
         {message && (
-          <div className="flex items-center justify-between rounded-xl border border-green-200 bg-green-50 p-3.5 text-xs sm:text-sm text-green-800">
+          <div className="flex items-center justify-between rounded-xl border border-yellow-400/50 bg-yellow-400/10 p-3.5 text-xs sm:text-sm text-yellow-300 shadow-[0_0_15px_rgba(250,204,21,0.1)]">
             <div className="flex items-center gap-2">
-              <span className="text-base">✅</span>
-              <span>{message}</span>
+              <span className="text-base text-yellow-400">⚡</span>
+              <span className="font-semibold">{message}</span>
             </div>
             <button
               type="button"
               onClick={() => setMessage("")}
-              className="text-green-600 hover:text-green-800 font-bold px-1"
+              className="text-yellow-400 hover:text-yellow-200 font-bold px-1"
               aria-label="Close"
             >
               ✕
@@ -307,58 +352,58 @@ function App() {
 
         {/* Summary Info Cards */}
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-2xs">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Total Defects
+          <div className="rounded-xl border border-zinc-800 border-t-2 border-t-yellow-400 bg-zinc-900/90 p-4 shadow-lg hover:border-zinc-700 transition-all">
+            <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+              Total Defects Registered
             </p>
-            <p className="mt-1 text-2xl font-bold text-gray-900">
+            <p className="mt-1 text-2xl font-black text-yellow-400">
               {defects.length}
             </p>
-            <p className="text-[11px] text-gray-500">
-              Loaded directly from backend
+            <p className="text-[11px] text-zinc-500">
+              Fetched from spatial database
             </p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-2xs">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Current View
+          <div className="rounded-xl border border-zinc-800 border-t-2 border-t-yellow-400 bg-zinc-900/90 p-4 shadow-lg hover:border-zinc-700 transition-all">
+            <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+              Current Map View
             </p>
-            <p className="mt-1 text-lg font-bold text-gray-900 truncate">
+            <p className="mt-1 text-lg font-black text-yellow-400 truncate">
               {nearbyDefects !== null
-                ? `Nearby (${nearbyDefects.length} found)`
+                ? `Nearby (${nearbyDefects.length} located)`
                 : "All Defects"}
             </p>
-            <p className="text-[11px] text-gray-500">
+            <p className="text-[11px] text-zinc-500">
               {nearbyDefects !== null
                 ? `Filtered by ${Number(radius) >= 1000 ? `${(Number(radius) / 1000).toFixed(1)} km` : `${radius}m`} radius`
                 : "Displaying full registry"}
             </p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-2xs">
+          <div className="rounded-xl border border-zinc-800 border-t-2 border-t-yellow-400 bg-zinc-900/90 p-4 shadow-lg hover:border-zinc-700 transition-all">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                Selected Pin
+              <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                Selected Coordinates
               </p>
               <button
                 type="button"
                 onClick={handleCopyCoords}
-                className="text-[11px] font-semibold text-blue-600 hover:underline"
+                className="text-[11px] font-bold text-yellow-400 hover:text-yellow-300 hover:underline"
               >
                 {copied ? "Copied!" : "Copy"}
               </button>
             </div>
-            <p className="mt-1 font-mono text-xs font-bold text-gray-900 truncate">
+            <p className="mt-1 font-mono text-xs font-bold text-yellow-400 truncate">
               {latitude}, {longitude}
             </p>
-            <p className="text-[11px] text-gray-500">
-              Click anywhere on map to change
+            <p className="text-[11px] text-zinc-500">
+              Click map or pick from table to reposition
             </p>
           </div>
         </section>
 
-        {/* Map Section */}
-        <section>
+        {/* Map Section with ref for smooth redirect scrolling */}
+        <section id="map-section" ref={mapSectionRef} className="scroll-mt-20">
           <RoadMap
             position={{
               lat: Number(latitude),
@@ -369,21 +414,22 @@ function App() {
             radius={Number(radius)}
             showRadius={true}
             focusCoords={focusCoords}
+            focusedDefectId={focusedDefectId}
             onSelectDefect={handleFocusDefect}
           />
         </section>
 
-        {/* Two Simple Action Forms */}
+        {/* Two Action Forms: Report Defect & Nearby Search */}
         <section className="grid gap-5 md:grid-cols-2">
           {/* Form 1: Report Defect */}
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-2xs">
-            <div className="border-b border-gray-100 pb-3">
-              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                <span>➕</span>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/95 p-5 shadow-xl">
+            <div className="border-b border-zinc-800 pb-3">
+              <h2 className="text-base font-black text-white flex items-center gap-2">
+                <span className="text-yellow-400">➕</span>
                 <span>Report Defect</span>
               </h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Click map to select location, enter description, and submit to backend.
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Submit coordinates & details. Automatically redirects to map on success.
               </p>
             </div>
 
@@ -391,18 +437,18 @@ function App() {
               <div>
                 <label
                   htmlFor="description"
-                  className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1"
+                  className="block text-xs font-bold uppercase tracking-wider text-yellow-400/90 mb-1"
                 >
-                  Description
+                  Defect Description
                 </label>
                 <input
                   id="description"
                   type="text"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="e.g. Pothole in westbound lane..."
+                  placeholder="e.g. Deep asphalt pothole, cracking on northbound lane..."
                   required
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900 placeholder-gray-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400 transition-colors shadow-sm"
                 />
               </div>
 
@@ -410,7 +456,7 @@ function App() {
                 <div>
                   <label
                     htmlFor="report-lat"
-                    className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1"
+                    className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1"
                   >
                     Latitude
                   </label>
@@ -421,13 +467,13 @@ function App() {
                     value={latitude}
                     onChange={(e) => setLatitude(e.target.value)}
                     required
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs text-gray-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs text-yellow-300 outline-none focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400 transition-colors shadow-sm"
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="report-lon"
-                    className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1"
+                    className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1"
                   >
                     Longitude
                   </label>
@@ -438,7 +484,7 @@ function App() {
                     value={longitude}
                     onChange={(e) => setLongitude(e.target.value)}
                     required
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs text-gray-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-yellow-300 outline-none focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400 transition-colors shadow-sm"
                   />
                 </div>
               </div>
@@ -446,22 +492,22 @@ function App() {
               <button
                 type="submit"
                 disabled={saving}
-                className="w-full rounded-lg bg-blue-600 py-2.5 text-xs font-bold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-2xs"
+                className="w-full rounded-lg bg-yellow-400 py-2.5 text-xs font-black text-black hover:bg-yellow-300 active:scale-[0.99] transition-all disabled:opacity-50 shadow-[0_0_15px_rgba(250,204,21,0.25)] cursor-pointer"
               >
-                {saving ? "Saving Defect to Backend..." : "+ Add Defect"}
+                {saving ? "Saving Defect to Database..." : "+ Submit Record & View on Map"}
               </button>
             </form>
           </div>
 
           {/* Form 2: Search Nearby Defects */}
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-2xs">
-            <div className="border-b border-gray-100 pb-3 flex items-center justify-between">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/95 p-5 shadow-xl">
+            <div className="border-b border-zinc-800 pb-3 flex items-center justify-between">
               <div>
-                <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                  <span>🔍</span>
-                  <span>Find Nearby Defects</span>
+                <h2 className="text-base font-black text-white flex items-center gap-2">
+                  <span className="text-yellow-400">🔍</span>
+                  <span>Spatial Radius Query</span>
                 </h2>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-zinc-400 mt-0.5">
                   Query backend for defects within radius of selected pin.
                 </p>
               </div>
@@ -472,7 +518,7 @@ function App() {
                     setNearbyDefects(null);
                     setMessage("");
                   }}
-                  className="rounded-lg border border-gray-300 bg-gray-50 px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 shadow-2xs"
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-xs font-bold text-yellow-400 hover:bg-zinc-700 shadow-sm"
                 >
                   Show All ({defects.length})
                 </button>
@@ -481,7 +527,7 @@ function App() {
 
             {/* Quick Radius Preset Chips */}
             <div className="mt-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-600 mb-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">
                 Quick Radius Presets
               </p>
               <div className="flex flex-wrap gap-1.5">
@@ -492,10 +538,10 @@ function App() {
                       type="button"
                       key={val}
                       onClick={() => setRadius(String(val))}
-                      className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors shadow-2xs ${
+                      className={`rounded-lg px-2.5 py-1 text-xs transition-all shadow-sm ${
                         isSelected
-                          ? "bg-blue-600 text-white font-semibold"
-                          : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+                          ? "bg-yellow-400 text-black font-extrabold shadow-[0_0_10px_rgba(250,204,21,0.3)]"
+                          : "border border-zinc-700 bg-zinc-950 text-zinc-300 font-semibold hover:border-yellow-400 hover:text-yellow-400"
                       }`}
                     >
                       {val >= 1000 ? `${val / 1000} km` : `${val}m`}
@@ -510,9 +556,9 @@ function App() {
                 <div>
                   <label
                     htmlFor="search-lat"
-                    className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1"
+                    className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1"
                   >
-                    Latitude
+                    Center Latitude
                   </label>
                   <input
                     id="search-lat"
@@ -521,15 +567,15 @@ function App() {
                     value={latitude}
                     onChange={(e) => setLatitude(e.target.value)}
                     required
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs text-gray-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs text-yellow-300 outline-none focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400 transition-colors shadow-sm"
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="search-lon"
-                    className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1"
+                    className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1"
                   >
-                    Longitude
+                    Center Longitude
                   </label>
                   <input
                     id="search-lon"
@@ -538,7 +584,7 @@ function App() {
                     value={longitude}
                     onChange={(e) => setLongitude(e.target.value)}
                     required
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs text-gray-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs text-yellow-300 outline-none focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400 transition-colors shadow-sm"
                   />
                 </div>
               </div>
@@ -546,7 +592,7 @@ function App() {
               <div>
                 <label
                   htmlFor="radius-input"
-                  className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1"
+                  className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1"
                 >
                   Search Radius (metres)
                 </label>
@@ -558,36 +604,36 @@ function App() {
                   value={radius}
                   onChange={(e) => setRadius(e.target.value)}
                   required
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-white outline-none focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400 transition-colors shadow-sm"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={searching}
-                className="w-full rounded-lg bg-indigo-600 py-2.5 text-xs font-bold text-white hover:bg-indigo-700 transition-colors disabled:opacity-50 shadow-2xs"
+                className="w-full rounded-lg border border-yellow-400/60 bg-yellow-400/15 py-2.5 text-xs font-black text-yellow-400 hover:bg-yellow-400 hover:text-black active:scale-[0.99] transition-all disabled:opacity-50 shadow-sm cursor-pointer"
               >
-                {searching ? "Searching Backend..." : "Search Nearby"}
+                {searching ? "Scanning Spatial Defect Index..." : "⚡ Search Nearby & Focus"}
               </button>
             </form>
           </div>
         </section>
 
         {/* Defects Table Section */}
-        <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xs">
+        <section className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/95 shadow-xl">
           {/* Table Header Bar */}
-          <div className="flex flex-col gap-3 border-b border-gray-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-b border-zinc-800 bg-zinc-950 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                <span>📋</span>
+              <h2 className="text-base font-black text-white flex items-center gap-2">
+                <span className="text-yellow-400">📋</span>
                 <span>
                   {nearbyDefects !== null
                     ? `Nearby Defects (${filteredDefects.length})`
                     : `Registered Road Defects (${filteredDefects.length})`}
                 </span>
               </h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Showing data fetched directly from backend
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Click "View on Map" on any defect to redirect and zoom directly to it
               </p>
             </div>
 
@@ -596,15 +642,15 @@ function App() {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Filter by description or ID..."
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-800 placeholder-gray-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                placeholder="Filter description or ID..."
+                className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-white placeholder-zinc-500 outline-none focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400 transition-colors shadow-sm"
               />
 
               {nearbyDefects !== null && (
                 <button
                   type="button"
                   onClick={() => setNearbyDefects(null)}
-                  className="rounded-lg border border-gray-300 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 shadow-2xs"
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-bold text-yellow-400 hover:bg-zinc-800 shadow-sm"
                 >
                   Show All
                 </button>
@@ -615,7 +661,7 @@ function App() {
           {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[600px] text-left text-xs">
-              <thead className="border-b border-gray-200 bg-gray-50 text-[11px] uppercase tracking-wider text-gray-600 font-semibold">
+              <thead className="border-b border-zinc-800 bg-black text-[11px] uppercase tracking-wider text-yellow-400 font-bold">
                 <tr>
                   <th className="px-4 py-3">ID</th>
                   <th className="px-4 py-3">Description</th>
@@ -626,33 +672,33 @@ function App() {
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-zinc-800/80">
                 {loading ? (
                   <tr>
-                    <td colSpan="6" className="px-4 py-10 text-center text-gray-500">
+                    <td colSpan="6" className="px-4 py-10 text-center text-zinc-500">
                       <div className="flex flex-col items-center justify-center gap-2">
-                        <span className="text-xl animate-spin">🔄</span>
-                        <span>Loading defects from backend...</span>
+                        <span className="text-2xl animate-spin text-yellow-400">🔄</span>
+                        <span className="font-semibold text-zinc-400">Loading defects from database...</span>
                       </div>
                     </td>
                   </tr>
                 ) : filteredDefects.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="px-4 py-10 text-center text-gray-500">
+                    <td colSpan="6" className="px-4 py-10 text-center text-zinc-500">
                       {backendConnected === false ? (
                         <div className="flex flex-col items-center justify-center gap-2">
-                          <span className="text-xl">⚠️</span>
-                          <span>Backend server is offline. No data available.</span>
+                          <span className="text-2xl text-yellow-400">⚠️</span>
+                          <span className="text-zinc-300 font-semibold">Backend server is offline or unreachable.</span>
                           <button
                             type="button"
                             onClick={loadDefects}
-                            className="mt-1 rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 shadow-2xs"
+                            className="mt-1 rounded-md border border-yellow-400/50 bg-yellow-400/10 px-3 py-1 text-xs font-bold text-yellow-400 hover:bg-yellow-400 hover:text-black transition-all shadow-sm"
                           >
-                            Retry
+                            Retry Connection
                           </button>
                         </div>
                       ) : (
-                        <span>No road defects found.</span>
+                        <span className="text-zinc-400">No road defects recorded yet.</span>
                       )}
                     </td>
                   </tr>
@@ -660,37 +706,46 @@ function App() {
                   filteredDefects.map((defect) => {
                     const distance =
                       defect.distance_metres ?? defect.distance ?? defect.distanceMetres;
+                    const isSelected = focusedDefectId === defect.id;
 
                     return (
-                      <tr key={defect.id} className="hover:bg-gray-50/80 transition-colors">
-                        <td className="px-4 py-3 font-mono font-semibold text-blue-600">
+                      <tr
+                        key={defect.id}
+                        className={`transition-colors ${
+                          isSelected
+                            ? "bg-yellow-400/10 border-l-2 border-l-yellow-400"
+                            : "hover:bg-zinc-800/50"
+                        }`}
+                      >
+                        <td className="px-4 py-3 font-mono font-bold text-yellow-400">
                           #{defect.id}
                         </td>
-                        <td className="px-4 py-3 font-medium text-gray-800 max-w-xs truncate">
+                        <td className="px-4 py-3 font-semibold text-zinc-200 max-w-xs truncate">
                           {defect.description}
                         </td>
-                        <td className="px-4 py-3 font-mono text-gray-600">
+                        <td className="px-4 py-3 font-mono text-zinc-400">
                           {Number(defect.latitude).toFixed(6)}
                         </td>
-                        <td className="px-4 py-3 font-mono text-gray-600">
+                        <td className="px-4 py-3 font-mono text-zinc-400">
                           {Number(defect.longitude).toFixed(6)}
                         </td>
                         <td className="px-4 py-3 font-mono">
                           {distance != null ? (
-                            <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-[11px] border border-blue-100">
+                            <span className="font-bold text-yellow-400 bg-yellow-400/15 border border-yellow-400/30 px-2 py-0.5 rounded text-[11px]">
                               {Number(distance).toFixed(1)} m
                             </span>
                           ) : (
-                            <span className="text-gray-400">—</span>
+                            <span className="text-zinc-600">—</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button
                             type="button"
                             onClick={() => handleFocusDefect(defect)}
-                            className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 hover:text-blue-600 shadow-2xs transition-colors"
+                            className="inline-flex items-center gap-1 rounded-md border border-yellow-400/50 bg-yellow-400/10 px-3 py-1 text-xs font-bold text-yellow-400 hover:bg-yellow-400 hover:text-black shadow-sm transition-all cursor-pointer"
                           >
-                            View on Map
+                            <span>📍</span>
+                            <span>View on Map</span>
                           </button>
                         </td>
                       </tr>
@@ -701,14 +756,20 @@ function App() {
             </table>
           </div>
 
-          <div className="border-t border-gray-200 bg-gray-50 px-4 py-2.5 text-xs text-gray-500">
-            Showing {filteredDefects.length} of {displayedDefects.length} defect(s)
+          <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-2.5 text-xs text-zinc-400 flex items-center justify-between">
+            <span>
+              Showing <span className="text-yellow-400 font-bold">{filteredDefects.length}</span> of {displayedDefects.length} defect(s)
+            </span>
+            <span className="text-[11px] text-zinc-500 hidden sm:inline">
+              Yellow &amp; Black Telemetry UI
+            </span>
           </div>
         </section>
 
         {/* Footer */}
-        <footer className="pt-4 pb-8 text-center text-xs text-gray-400">
-          Road Tracker · Backend API: {DEFAULT_API_URL}
+        <footer className="pt-4 pb-8 text-center text-xs text-zinc-500">
+          RoadTrack Pro · Connected API Endpoint:{" "}
+          <span className="text-yellow-400 font-mono">{DEFAULT_API_URL}</span>
         </footer>
       </main>
     </div>
